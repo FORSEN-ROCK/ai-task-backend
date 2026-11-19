@@ -1,0 +1,94 @@
+name: ai-task-planner
+
+x-database-env: &database-env
+  DATABASE__HOST: postgres
+  DATABASE__PORT: "5432"
+  DATABASE__NAME: ai_task_planner
+  DATABASE__USER: planner
+  DATABASE__PASSWORD: ${PLANNER_DB_PASSWORD:?Run build/generate_env.py first}
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Run build/generate_env.py first}
+      PLANNER_DB_PASSWORD: ${PLANNER_DB_PASSWORD:?Run build/generate_env.py first}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Run build/generate_env.py first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-postgres.sh:/docker-entrypoint-initdb.d/10-databases.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Run build/generate_env.py first}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Run build/generate_env.py first}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8080}
+      KC_HEALTH_ENABLED: "true"
+      PLANNER_CLIENT_SECRET: ${PLANNER_CLIENT_SECRET:?Run build/generate_env.py first}
+      PLANNER_ADMIN_CLIENT_SECRET: ${PLANNER_ADMIN_CLIENT_SECRET:?Run build/generate_env.py first}
+    volumes:
+      - ./planner-realm.json:/opt/keycloak/data/import/planner-realm.json:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          read -r protocol code rest <&3
+          test "$$code" = 200
+      start_period: 60s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: ai-task-planner:stack
+    pull_policy: never
+    command: ["alembic", "upgrade", "head"]
+    environment: *database-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    image: ai-task-planner:stack
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    environment:
+      <<: *database-env
+      KEYCLOAK__URL: http://keycloak:8080
+      KEYCLOAK__REALM: planner
+      KEYCLOAK__CLIENT_ID: planner-api
+      KEYCLOAK__CLIENT_SECRET: ${PLANNER_CLIENT_SECRET:?Run build/generate_env.py first}
+      KEYCLOAK__ADMIN_CLIENT_ID: planner-admin
+      KEYCLOAK__ADMIN_CLIENT_SECRET: ${PLANNER_ADMIN_CLIENT_SECRET:?Run build/generate_env.py first}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

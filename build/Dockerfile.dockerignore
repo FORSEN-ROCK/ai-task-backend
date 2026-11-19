@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!app/
+!app/**
+!alembic.ini
+!alembic/
+!alembic/**
+**/.env
+**/.env.*
+**/__pycache__/
+**/*.py[cod]
