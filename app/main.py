@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.api.auth.routes import router as auth_router
 from app.api.health import router as health_router
+from app.api.plannes import router as planning_router
 from app.confg import Settings
 from app.core.database import create_database_engine
 from app.core.keycloak.client import KeycloakClient
@@ -43,3 +44,4 @@ app = FastAPI(title="AI Task Planner", lifespan=lifespan)
 app.add_middleware(AuthenticationMiddleware)
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(planning_router)

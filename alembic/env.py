@@ -8,6 +8,7 @@ from alembic import context
 from app.confg import Settings
 from app.core.database import database_url
 from app.core.models import Base
+from app.plannes import models as planning_models  # noqa: F401
 from app.user import models  # noqa: F401  # Регистрирует таблицы в Base.metadata.
 
 
